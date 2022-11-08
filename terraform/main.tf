@@ -5,9 +5,13 @@
 locals {
   cwd           = reverse(split("/", path.cwd))
   instance_type = local.cwd[1]
-  location      = local.cwd[2]
+  #location      = local.cwd[2]
   environment   = local.cwd[3]
   vpc_cidr      = "10.123.0.0/16"
+  tags = {
+    project     = "web-eks-project"
+    environment = "production"
+  }
 }
 ## data block to get the master RDS password
 
@@ -22,28 +26,28 @@ data "aws_secretsmanager_secret_version" "password" {
 ## CREATING VPC, SUBNETS, NAT, IG AND SECURITY GROUPS
 
 module "networking" {
-  source            = "./modules/networking"
-  vpc_cidr          = local.vpc_cidr
-  access_ip         = var.access_ip
-  public_sn_count   = 2
-  private_sn_count  = 2
-  db_subnet_group   = true
-  availabilityzone  = "us-east-1a"
-  azs               = 2
-} 
+  source           = "./modules/networking"
+  vpc_cidr         = local.vpc_cidr
+  access_ip        = var.access_ip
+  public_sn_count  = 2
+  private_sn_count = 2
+  db_subnet_group  = true
+  availabilityzone = "us-east-1a"
+  azs              = 2
+}
 ## CREATING FRONTEND AND BACKEND SERVERS BEHIND AUTO SCALING GROUPS
 
 module "servers" {
-  source                  = "./modules/servers"
-  bastion_sg              = module.networking.bastion_sg
-  frontend_app_sg         = module.networking.frontend_app_sg
-  backend_app_sg          = module.networking.backend_app_sg
-  public_subnets          = module.networking.public_subnets
-  private_subnets         = module.networking.private_subnets
-  bastion_instance_count  = 1
-  instance_type           = local.instance_type
-  lb_tg_name              = module.loadbalancing.lb_tg_name
-  lb_tg                   = module.loadbalancing.lb_tg
+  source                 = "./modules/servers"
+  bastion_sg             = module.networking.bastion_sg
+  frontend_app_sg        = module.networking.frontend_app_sg
+  backend_app_sg         = module.networking.backend_app_sg
+  public_subnets         = module.networking.public_subnets
+  private_subnets        = module.networking.private_subnets
+  bastion_instance_count = 1
+  instance_type          = local.instance_type
+  lb_tg_name             = module.loadbalancing.lb_tg_name
+  lb_tg                  = module.loadbalancing.lb_tg
 }
 
 ## CREATING DATABASE
@@ -64,15 +68,31 @@ module "database" {
 
 ## CREATING LOAD BALANCER IN PUBLIC SUBNET
 module "loadbalancing" {
-  source                  = "./modules/lb"
-  lb_sg                   = module.networking.lb_sg
-  public_subnets          = module.networking.public_subnets
-  tg_port                 = 80
-  tg_protocol             = "HTTP"
-  vpc_id                  = module.networking.vpc_id
-  app_asg                 = module.servers.app_asg
-  listener_port           = 80
-  listener_protocol       = "HTTP"
-  azs                     = 2
+  source            = "./modules/lb"
+  lb_sg             = module.networking.lb_sg
+  public_subnets    = module.networking.public_subnets
+  tg_port           = 80
+  tg_protocol       = "HTTP"
+  vpc_id            = module.networking.vpc_id
+  app_asg           = module.servers.app_asg
+  listener_port     = 80
+  listener_protocol = "HTTP"
+  azs               = 2
 }
+
+## CREATING EKS CLUSTER USING LOCAL MODULE
+
+module "eks" {
+  source          = "./modules/k8s"
+  tags            = local.tags
+  k8s_version     = 1.22
+  vpc_id          = module.networking.vpc_id
+  public_subnets  = module.networking.public_subnets
+  private_subnets = module.networking.private_subnets
+  desired_size    = 2
+  min_size        = 1
+  max_size        = 5
+
+}
+
 ####################################################################

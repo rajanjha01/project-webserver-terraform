@@ -15,5 +15,9 @@ variable "dbuser" {
 variable "bucket_name" {
   type = string
 }
- 
+variable "aws_profile_name" {
   
+}
+variable "aws_region" {
+  
+}
